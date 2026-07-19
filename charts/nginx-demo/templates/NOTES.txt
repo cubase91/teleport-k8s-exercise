@@ -1,0 +1,8 @@
+Nginx Demo has been deployed!
+
+1. The application is available at:
+   https://{{ .Values.ingress.host }}
+
+2. This release was deployed with least-privilege RBAC using the nginx-deployer user.
+
+3. TLS certificate is managed by cert-manager (ClusterIssuer: {{ .Values.ingress.tls.clusterIssuer }}).

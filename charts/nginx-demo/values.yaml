@@ -1,0 +1,28 @@
+replicaCount: 2
+
+image:
+  repository: nginx
+  tag: "1.27"
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  port: 80
+
+ingress:
+  enabled: true
+  className: nginx
+  host: nginx.local
+  tls:
+    enabled: true
+    secretName: nginx-tls
+    clusterIssuer: selfsigned-issuer
+
+html: |
+  <html>
+    <head><title>Teleport Take-Home</title></head>
+    <body>
+      <h1>Nginx deployed via Helm by limited user</h1>
+      <p>This demonstrates GitOps-style deployment on kubeadm with cert-manager TLS and least-privilege RBAC.</p>
+    </body>
+  </html>

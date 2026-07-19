@@ -1,0 +1,13 @@
+# Sensitive files - never commit these
+*.key
+*.crt
+*.csr
+*.kubeconfig
+kubeconfigs/*.kubeconfig
+
+# OS / editor files
+.DS_Store
+*.swp
+*~
+.idea/
+.vscode/
