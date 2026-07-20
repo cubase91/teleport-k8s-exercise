@@ -19,6 +19,12 @@ This repository contains a complete Kubernetes solution demonstrating:
 - **Authorization**: Namespace-scoped Role + RoleBinding
 - **Application**: Helm chart (`charts/nginx-demo`)
 
+## Documentation
+
+- [design.md](design.md) — Architecture decisions, trade-offs, and my experience building this
+- [COMMANDS.md](COMMANDS.md) — Major commands used to build the cluster and deploy the application
+- [REFERENCES.md](REFERENCES.md) — Official sources and documentation used
+
 ## Prerequisites
 
 - 3 Ubuntu 24.04 nodes (or VMs) with:
@@ -26,25 +32,28 @@ This repository contains a complete Kubernetes solution demonstrating:
   - Network connectivity between nodes
   - containerd + kubeadm / kubelet / kubectl installed
 - Helm 3
-- `kubectl` configured for cluster admin access
+- `kubectl` configured for cluster-admin access
 
 ## Quick Start / Reproduction Steps
 
 1. Prepare all nodes (disable swap, load kernel modules, configure sysctl, install containerd and Kubernetes packages)
 2. Initialize the control plane:
-
+   ```bash
    sudo kubeadm init --pod-network-cidr=10.244.0.0/16 --apiserver-advertise-address=<CP-IP>
-
+   ```
 3. Install the Flannel CNI
 4. Join the worker nodes
 5. Install cert-manager and ingress-nginx
 6. Create the limited user (CSR → approve → build kubeconfig)
 7. Apply RBAC (Role + RoleBinding) in the `nginx-demo` namespace
 8. Deploy the application with Helm **as the limited user**:
-
+   ```bash
    helm upgrade --install nginx-demo charts/nginx-demo \
      --namespace nginx-demo \
      --kubeconfig nginx-deployer.kubeconfig
+   ```
+
+Full command details are in [COMMANDS.md](COMMANDS.md).
 
 ## Limited User & Security Model
 
@@ -64,25 +73,32 @@ See [design.md](design.md) for a detailed discussion of:
 - CSR-based authentication versus other methods
 - Advantages and limitations of this access model
 - Choices made for CNI, Ingress, and certificate management
+- Real challenges encountered while building the environment
 - How this approach would be improved in a real production environment
 
 ## Project Structure
 
-    ├── README.md
-    ├── design.md
-    ├── charts/nginx-demo/          # Helm chart for the application
-    ├── manifests/                  # Supporting Kubernetes manifests
-    │   ├── cert-manager-issuer.yaml
-    │   ├── namespace-rbac.yaml
-    │   └── limited-user/
-    └── scripts/
+```
+├── README.md
+├── design.md
+├── COMMANDS.md
+├── REFERENCES.md
+├── charts/nginx-demo/          # Helm chart for the application
+├── manifests/                  # Supporting Kubernetes manifests
+│   ├── cert-manager-issuer.yaml
+│   ├── namespace-rbac.yaml
+│   └── limited-user/
+└── scripts/
+```
 
 ## Cleanup
 
-    helm uninstall nginx-demo -n nginx-demo --kubeconfig nginx-deployer.kubeconfig
-    kubectl delete namespace nginx-demo
-    kubectl delete clusterissuer selfsigned-issuer
-    # Optionally run kubeadm reset on all nodes
+```bash
+helm uninstall nginx-demo -n nginx-demo --kubeconfig nginx-deployer.kubeconfig
+kubectl delete namespace nginx-demo
+kubectl delete clusterissuer selfsigned-issuer
+# Optionally run kubeadm reset on all nodes
+```
 
 ## Author
 

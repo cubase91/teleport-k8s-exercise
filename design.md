@@ -1,90 +1,77 @@
 # Design Document
 
-## 1. Goal
+## Goal
 
-Build a Kubernetes cluster using kubeadm and deploy a static Nginx application using a non-administrative user. The solution demonstrates:
+Build a standard kubeadm Kubernetes cluster (1 control-plane + 2 workers) and deploy a static Nginx site using a non-admin user. The user authenticates with a client certificate created through a CertificateSigningRequest, and their access is limited with RBAC to only what’s needed inside one namespace. TLS is handled by cert-manager, and the app is packaged as a Helm chart.
 
-- Standard kubeadm installation (1 control-plane + 2 workers)
-- User authentication via CertificateSigningRequest
-- Least-privilege RBAC
-- TLS certificate management with cert-manager
-- Application packaging and deployment with Helm
+## Architecture
 
-## 2. Architecture Overview
+| Piece                    | Choice                              | Why                                      |
+|--------------------------|-------------------------------------|------------------------------------------|
+| Cluster                  | kubeadm                             | Required by the exercise                 |
+| Nodes                    | 1 control-plane + 2 workers         | Matches the requirements                 |
+| CNI                      | Flannel                             | Simple and reliable for this scope       |
+| Ingress                  | ingress-nginx                       | Common and well-documented               |
+| Certificates             | cert-manager + self-signed issuer   | Meets the TLS requirement cleanly        |
+| User identity            | Client cert (`nginx-deployer`)      | Created via CSR                          |
+| Authorization            | Namespace-scoped Role + RoleBinding | Least privilege                          |
+| App packaging            | Helm chart                          | Satisfies the advanced / GitOps objective|
 
-| Component              | Choice                          | Notes                                      |
-|------------------------|----------------------------------|--------------------------------------------|
-| Cluster bootstrap      | kubeadm                         | Standard tool for production-like clusters |
-| Nodes                  | 1 control-plane + 2 workers     | Matches the exercise requirements          |
-| CNI                    | Flannel                         | Simple and reliable for this scope         |
-| Ingress                | ingress-nginx                   | Widely used and well-documented            |
-| Certificate management | cert-manager + self-signed issuer | Meets the TLS requirement cleanly        |
-| Application identity   | Client certificate (`nginx-deployer`) | Created via CertificateSigningRequest |
-| Authorization          | Namespace-scoped Role + RoleBinding | Least privilege within `nginx-demo`   |
-| Application delivery   | Helm chart                      | Satisfies the advanced/GitOps objective    |
+## Key Decisions
 
-## 3. Key Design Decisions
-
-### Why kubeadm?
-kubeadm is the standard bootstrap tool for Kubernetes. Using it (instead of Minikube, kind, or managed services) better reflects real-world cluster creation and demonstrates understanding of the full control plane.
+### Why kubeadm
+The exercise specifically asked for a real kubeadm install instead of Minikube or kind. Using the standard tool also made the control-plane components and certificate flow more visible.
 
 ### Authentication
-A dedicated user (`nginx-deployer`) was created using the native CertificateSigningRequest flow:
+I created a dedicated user called `nginx-deployer` using the normal CertificateSigningRequest process:
 
-1. Generate a private key and CSR
-2. Submit the CSR to the Kubernetes API
-3. Approve the request
-4. Extract the signed certificate
-5. Build a dedicated kubeconfig
+1. Generated a private key and CSR with openssl
+2. Submitted the CSR to the cluster
+3. Approved it
+4. Extracted the signed certificate
+5. Built a kubeconfig that only uses that certificate
 
-This approach relies only on built-in Kubernetes mechanisms.
+This stays entirely within native Kubernetes features.
 
-### Authorization (RBAC)
-A Role was created in the `nginx-demo` namespace with the minimum permissions required to manage:
-
-- Deployments
-- Services
-- Pods (including logs)
-- ConfigMaps
-- Secrets
-- Ingresses
-
-The RoleBinding grants these permissions only to the `nginx-deployer` user and only inside the `nginx-demo` namespace. The user has no access to other namespaces or cluster-scoped resources.
+### Authorization
+I created a Role in the `nginx-demo` namespace that only allows the actions needed to manage the Nginx application (Deployments, Services, Pods, ConfigMaps, Secrets, and Ingresses). The RoleBinding ties that Role only to the `nginx-deployer` user and only inside that one namespace. The user has no access outside of it.
 
 ### Certificate Management
-cert-manager was installed and configured with a self-signed `ClusterIssuer`. The Nginx Ingress requests a certificate using the standard `cert-manager.io/cluster-issuer` annotation. This provides automatic certificate provisioning and demonstrates a realistic TLS workflow.
+cert-manager is installed with a simple self-signed ClusterIssuer. The Ingress resource requests a certificate using the standard annotation. Once the certificate is ready, the TLS secret is automatically created and used by the Ingress.
 
 ### Application Packaging
-The Nginx application was packaged as a Helm chart. This satisfies the advanced objective and makes the deployment more repeatable and easier to manage than raw manifests alone.
+I packaged the Nginx site as a Helm chart. This made the deployment cleaner and fulfilled the advanced objective.
 
-## 4. Trade-offs and Limitations
+## Trade-offs
 
-**Advantages of this approach**
-- Uses only native Kubernetes features
-- Clear demonstration of least-privilege access
-- Relatively simple to understand and reproduce
-- Good foundation for further hardening
+**What works well**
+- Everything uses native Kubernetes features
+- Least-privilege is clear and easy to demonstrate
+- The setup is reproducible
+- Good foundation if you wanted to harden it further
 
 **Limitations**
-- Client certificates are relatively long-lived and require manual rotation and revocation
-- No short-lived or just-in-time credentials
-- Limited auditability compared to a centralized identity platform
-- Certificate and kubeconfig distribution becomes operationally expensive at scale
-- No built-in support for MFA, session recording, or advanced policy
+- Client certificates are long-lived. Rotation and revocation are manual.
+- Distributing kubeconfigs with embedded certificates gets painful as the number of users grows.
+- Auditability is limited compared to a real identity platform.
+- No short-lived credentials, MFA, or session recording.
 
-These limitations are common in pure certificate-based Kubernetes access models and are the type of problems that platforms like Teleport are designed to address (ephemeral certificates, centralized identity, audit logging, access requests, etc.).
+These are exactly the kinds of operational problems that tools like Teleport are built to solve.
 
-## 5. Production Improvements
+## My Experience Building This
 
-In a real environment the following improvements would be prioritized:
+I ran everything on three Ubuntu 24.04 VMs inside Hyper-V on a Windows 11 desktop that only has 16 GB of RAM. That forced some real trade-offs.
 
-- Replace long-lived client certificates with short-lived certificates issued by a central identity system
-- Enforce network policies and pod security standards
-- Use a proper internal or public CA instead of a self-signed issuer
-- Add a GitOps controller (Argo CD or Flux) on top of the Helm chart
-- Move to a highly available control plane
-- Add monitoring, alerting, and etcd backup
+Memory was the biggest headache. Even after setting Dynamic Memory with a 2048 MB minimum on the control plane, `free -h` was only showing about 1.9 GiB. `kubeadm init` failed with the “system RAM is less than the minimum 1700 MB” error. I ended up raising the minimum, temporarily turning Dynamic Memory off for the init, and then turning it back on later. Swap also kept coming back after every reboot until I properly commented it out in `/etc/fstab` and deleted the swap file on all three nodes.
 
-## 6. Summary
+Networking was another annoyance. DHCP kept giving the VMs new IPs, which killed my mRemoteNG sessions. I finally set static IPs (192.168.68.201 for the control plane, .202 and .203 for the workers) with Netplan so I could keep stable SSH access.
 
-The solution meets all minimum requirements of the exercise and includes the advanced Helm objective. It prioritizes clarity, least privilege, and reproducibility while clearly documenting the operational limitations of certificate-based access.
+The CSR flow for the limited user felt a bit clunky the first time through, but once it was working it was satisfying to see the limited user able to create resources in `nginx-demo` while being denied access to everything else.
+
+Overall this was a useful exercise in combining official patterns while dealing with real constraints on the host. It also made the operational downsides of long-lived client certificates very concrete.
+
+The full set of commands used to build everything is documented in [COMMANDS.md](COMMANDS.md).
+
+## Summary
+
+The solution meets all the minimum requirements and includes the advanced Helm objective. It stays inside native Kubernetes features, demonstrates least privilege clearly, and surfaces the real operational limitations of long-lived client certificates
